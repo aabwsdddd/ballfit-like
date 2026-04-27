@@ -1,3 +1,23 @@
+import { runState } from "./data/runState.js";
+import { metaState } from "./data/metaState.js";
+
+const PLAYER_MOVEMENT = {
+  BASE_SPEED: 250
+};
+
+const ENEMY_SPEED = 120;
+
+const playerStats = {
+  moveSpeedMultiplier: 1,
+  getMoveSpeed() {
+    return PLAYER_MOVEMENT.BASE_SPEED * this.moveSpeedMultiplier;
+  }
+};
+
+console.log("[State] runState:", runState);
+console.log("[State] metaState:", metaState);
+console.log("[PlayerStats]", playerStats);
+
 const config = {
   type: Phaser.AUTO,
   width: 960,
@@ -20,6 +40,7 @@ const config = {
 const game = new Phaser.Game(config);
 
 let player;
+let enemy;
 let cursors;
 let keys;
 
@@ -32,6 +53,10 @@ function create() {
   this.physics.add.existing(player);
   player.body.setCollideWorldBounds(true);
 
+  enemy = this.add.circle(100, 100, 18, 0xef4444);
+  this.physics.add.existing(enemy);
+  enemy.body.setCollideWorldBounds(true);
+
   cursors = this.input.keyboard.createCursorKeys();
 
   keys = this.input.keyboard.addKeys({
@@ -43,7 +68,8 @@ function create() {
 }
 
 function update() {
-  const speed = 250;
+  const speed = playerStats.getMoveSpeed();
+  const enemySpeed = ENEMY_SPEED;
 
   player.body.setVelocity(0);
 
@@ -60,4 +86,18 @@ function update() {
   }
 
   player.body.velocity.normalize().scale(speed);
+
+  if (enemy?.active) {
+    const enemyDirectionX = player.x - enemy.x;
+    const enemyDirectionY = player.y - enemy.y;
+    const enemyDirection = new Phaser.Math.Vector2(enemyDirectionX, enemyDirectionY);
+
+    if (enemyDirection.lengthSq() > 0) {
+      enemyDirection.normalize().scale(enemySpeed);
+      enemy.body.setVelocity(enemyDirection.x, enemyDirection.y);
+    } else {
+      enemy.body.setVelocity(0);
+    }
+  }
+
 }
