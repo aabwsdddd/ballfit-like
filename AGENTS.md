@@ -2,9 +2,19 @@
 
 ## Project
 
-This is a Godot 4 2D top-down roguelike survival game.
+This is a 2D top-down roguelike survival web game.
 
-## Core Rules
+The game is inspired by Vampire Survivors-style progression.
+
+## Tech Stack
+
+- Platform: Web browser
+- Language: JavaScript
+- Game framework: Phaser
+- Initial target: desktop browser
+- Deployment: GitHub Pages
+
+## Core Game Rules
 
 - EXP is used only during a run.
 - EXP resets when the run ends.
@@ -13,19 +23,14 @@ This is a Godot 4 2D top-down roguelike survival game.
 - Permanent resource is used for permanent upgrades.
 - Do not mix EXP and permanent resource.
 
-## Tech Stack
-
-- Engine: Godot 4
-- Language: GDScript
-- Initial target: PC
-
 ## Coding Rules
 
 - Keep systems simple.
 - Do not modify unrelated files.
-- Do not add unnecessary plugins.
-- Use temporary shapes or placeholder graphics if assets are missing.
-- Keep player, enemy, projectile, UI, and save systems separated.
+- Do not add unnecessary build tools unless requested.
+- Use placeholder graphics first.
+- Use simple shapes before adding real art assets.
+- Keep player, enemy, projectile, UI, and save systems separated when possible.
 
 ## Required Response Format
 
@@ -33,6 +38,6 @@ After every task, explain:
 
 1. Changed files
 2. What was implemented
-3. How to test it
+3. How to test it in the browser
 4. Known limitations
 5. Recommended next task
