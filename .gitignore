@@ -1,8 +1,12 @@
-# Godot 4
-.godot/
-.import/
-export.cfg
-export_presets.cfg
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+
+# Logs
+*.log
 
 # OS files
 .DS_Store
