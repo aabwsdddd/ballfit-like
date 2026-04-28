@@ -6,6 +6,8 @@ import {
   savePermanentResource
 } from "./data/metaState.js";
 
+const DEV_MODE = false;
+
 const PLAYER_MOVEMENT = {
   BASE_SPEED: 250
 };
@@ -161,6 +163,7 @@ let restartText;
 let restartKey;
 let resetSaveKey;
 let levelChoiceKeys;
+let devKeys;
 let levelUpTitleText;
 let levelUpOptionTexts = [];
 let currentLevelUpOptions = [];
@@ -187,6 +190,7 @@ function preload() {
 function create() {
   loadPermanentResource(metaState);
   activeScene = this;
+  console.log(`[DevMode] ${DEV_MODE ? "ENABLED" : "DISABLED"}`);
   runStartTimeMs = this.time.now;
   hasGrantedGameOverReward = false;
   player = this.add.circle(480, 270, 20, 0x4ade80);
@@ -262,6 +266,12 @@ function create() {
     option2: Phaser.Input.Keyboard.KeyCodes.TWO,
     option3: Phaser.Input.Keyboard.KeyCodes.THREE
   });
+  devKeys = this.input.keyboard.addKeys({
+    spawnBoss: Phaser.Input.Keyboard.KeyCodes.B,
+    levelUp: Phaser.Input.Keyboard.KeyCodes.L,
+    grantResource: Phaser.Input.Keyboard.KeyCodes.G,
+    fullHeal: Phaser.Input.Keyboard.KeyCodes.H
+  });
 
   hudText = this.add.text(16, 16, "", {
     fontSize: "20px",
@@ -271,6 +281,7 @@ function create() {
 }
 
 function update(_, delta) {
+  handleDevHotkeys();
   updateHudText();
 
   if (isRunOver) {
@@ -356,6 +367,54 @@ function update(_, delta) {
     }
   });
 
+}
+
+function handleDevHotkeys() {
+  if (!DEV_MODE || !devKeys) {
+    return;
+  }
+
+  if (Phaser.Input.Keyboard.JustDown(devKeys.spawnBoss)) {
+    if (isRunOver || !activeScene) {
+      return;
+    }
+
+    if (getActiveBoss()) {
+      console.log("[DevMode] Boss already active.");
+      return;
+    }
+
+    const spawnedBoss = spawnBoss(activeScene);
+    console.log(spawnedBoss ? "[DevMode] Boss spawned." : "[DevMode] Boss spawn failed.");
+  }
+
+  if (Phaser.Input.Keyboard.JustDown(devKeys.levelUp)) {
+    if (isRunOver) {
+      return;
+    }
+
+    const requiredExp = getExpRequiredForLevel(runState.runLevel);
+    runState.exp += requiredExp;
+    processRunLevelUps();
+    console.log("[DevMode] Forced level-up choice.");
+  }
+
+  if (Phaser.Input.Keyboard.JustDown(devKeys.grantResource)) {
+    metaState.permanentResource += 50;
+    savePermanentResource(metaState);
+    updateResultText();
+    console.log("[DevMode] Permanent resource +50.");
+  }
+
+  if (Phaser.Input.Keyboard.JustDown(devKeys.fullHeal)) {
+    if (isRunOver || !player?.active) {
+      return;
+    }
+
+    const maxHp = player.getData("maxHp") ?? PLAYER_MAX_HP;
+    player.setData("currentHp", maxHp);
+    console.log("[DevMode] Player fully healed.");
+  }
 }
 
 function updateOrbitBallPosition(delta) {
@@ -478,7 +537,8 @@ function updateHudText() {
   const bossStatus = getActiveBoss() ? "Alive" : "None";
 
   hudText.setText(
-    `Player HP: ${currentHp} / ${maxHp}\n`
+    `DEV MODE: ${DEV_MODE ? "ON" : "OFF"}\n`
+    + `Player HP: ${currentHp} / ${maxHp}\n`
     + `Run Level: ${runState.runLevel}\n`
     + `EXP: ${runState.exp} / ${requiredExp}\n`
     + `killCount: ${killCount}\n`
