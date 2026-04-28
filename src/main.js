@@ -1,4 +1,4 @@
-import { runState } from "./data/runState.js";
+import { getExpRequiredForLevel, runState } from "./data/runState.js";
 import { metaState } from "./data/metaState.js";
 
 const PLAYER_MOVEMENT = {
@@ -109,6 +109,7 @@ function create() {
 
     expOrb.destroy();
     runState.exp += EXP_ORB_VALUE;
+    processRunLevelUps();
     console.log("[RunState] EXP:", runState.exp);
   });
 
@@ -343,6 +344,17 @@ function endRun(scene) {
 function restartRun() {
   if (typeof window !== "undefined" && window.location) {
     window.location.reload();
+  }
+}
+
+function processRunLevelUps() {
+  let requiredExp = getExpRequiredForLevel(runState.runLevel);
+
+  while (runState.exp >= requiredExp) {
+    runState.exp -= requiredExp;
+    runState.runLevel += 1;
+    console.log("[RunState] Level Up:", runState.runLevel, "Remaining EXP:", runState.exp);
+    requiredExp = getExpRequiredForLevel(runState.runLevel);
   }
 }
 
