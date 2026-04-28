@@ -38,6 +38,14 @@ const ENEMY_TYPES = {
     speed: 80,
     maxHp: 8,
     expValue: 3
+  },
+  boss: {
+    id: "boss",
+    color: 0xfacc15,
+    radius: 36,
+    speed: 60,
+    maxHp: 50,
+    expValue: 10
   }
 };
 const ENEMY_MAX_ACTIVE = 20;
@@ -45,6 +53,8 @@ const ENEMY_INITIAL_SPAWN_INTERVAL_MS = 3000;
 const ENEMY_MIN_SPAWN_INTERVAL_MS = 800;
 const ENEMY_SPAWN_INTERVAL_DECAY_MS = 100;
 const ENEMY_MIN_DISTANCE_FROM_PLAYER = 180;
+const BOSS_SPAWN_INTERVAL_MS = 60000;
+const BOSS_REWARD_BONUS = 10;
 const ATTACK_COOLDOWN_MS = 500;
 const PROJECTILE_DAMAGE = 1;
 const PROJECTILE_SPEED = 420;
@@ -140,8 +150,10 @@ let orbitBalls = [];
 let orbitBallAngle = 0;
 let lastAttackTime = 0;
 let killCount = 0;
+let bossKillCount = 0;
 let currentEnemySpawnInterval = ENEMY_INITIAL_SPAWN_INTERVAL_MS;
 let enemySpawnTimer;
+let bossSpawnTimer;
 let lastPlayerHitTime = -PLAYER_HIT_COOLDOWN_MS;
 let isRunOver = false;
 let gameOverText;
@@ -200,10 +212,7 @@ function create() {
     targetEnemy.setData("hp", nextHp);
 
     if (nextHp <= 0) {
-      const expValue = targetEnemy.getData("expValue") ?? ENEMY_TYPES.basic.expValue;
-      spawnExpOrb(this, targetEnemy.x, targetEnemy.y, expValue);
-      targetEnemy.destroy();
-      killCount += 1;
+      handleEnemyDefeat(this, targetEnemy);
     }
   });
 
@@ -235,6 +244,7 @@ function create() {
   });
 
   scheduleNextEnemySpawn(this);
+  scheduleBossSpawn(this);
 
   cursors = this.input.keyboard.createCursorKeys();
 
@@ -403,10 +413,23 @@ function handleOrbitBallEnemyOverlap(scene, targetEnemy) {
   targetEnemy.setData("hp", nextHp);
 
   if (nextHp <= 0) {
-    const expValue = targetEnemy.getData("expValue") ?? ENEMY_TYPES.basic.expValue;
-    spawnExpOrb(scene, targetEnemy.x, targetEnemy.y, expValue);
-    targetEnemy.destroy();
-    killCount += 1;
+    handleEnemyDefeat(scene, targetEnemy);
+  }
+}
+
+function handleEnemyDefeat(scene, targetEnemy) {
+  if (!targetEnemy?.active) {
+    return;
+  }
+
+  const expValue = targetEnemy.getData("expValue") ?? ENEMY_TYPES.basic.expValue;
+  spawnExpOrb(scene, targetEnemy.x, targetEnemy.y, expValue);
+  const typeId = targetEnemy.getData("typeId");
+  targetEnemy.destroy();
+  killCount += 1;
+
+  if (typeId === ENEMY_TYPES.boss.id) {
+    bossKillCount += 1;
   }
 }
 
@@ -452,12 +475,15 @@ function updateHudText() {
   const maxHp = player.getData("maxHp") ?? PLAYER_MAX_HP;
   const requiredExp = getExpRequiredForLevel(runState.runLevel);
   const gameStatus = isRunOver ? "\nStatus: Game Over" : "";
+  const bossStatus = getActiveBoss() ? "Alive" : "None";
 
   hudText.setText(
     `Player HP: ${currentHp} / ${maxHp}\n`
     + `Run Level: ${runState.runLevel}\n`
     + `EXP: ${runState.exp} / ${requiredExp}\n`
-    + `killCount: ${killCount}`
+    + `killCount: ${killCount}\n`
+    + `Boss Kills: ${bossKillCount}\n`
+    + `Boss: ${bossStatus}`
     + gameStatus
   );
 }
@@ -519,6 +545,51 @@ function spawnEnemy(scene) {
   enemy.setData("expValue", enemyType.expValue);
   enemies.add(enemy);
   return enemy;
+}
+
+function getActiveBoss() {
+  if (!enemies) {
+    return null;
+  }
+
+  let activeBoss = null;
+  enemies.children.each((enemy) => {
+    if (!enemy?.active || activeBoss) {
+      return;
+    }
+
+    if (enemy.getData("typeId") === ENEMY_TYPES.boss.id) {
+      activeBoss = enemy;
+    }
+  });
+  return activeBoss;
+}
+
+function spawnBoss(scene) {
+  if (isRunOver || getActiveBoss()) {
+    return null;
+  }
+
+  const spawnPoint = getEnemySpawnPoint(ENEMY_TYPES.boss.radius);
+  if (!spawnPoint) {
+    return null;
+  }
+
+  const boss = scene.add.circle(
+    spawnPoint.x,
+    spawnPoint.y,
+    ENEMY_TYPES.boss.radius,
+    ENEMY_TYPES.boss.color
+  );
+  scene.physics.add.existing(boss);
+  boss.body.setCollideWorldBounds(true);
+  boss.setData("typeId", ENEMY_TYPES.boss.id);
+  boss.setData("hp", ENEMY_TYPES.boss.maxHp);
+  boss.setData("maxHp", ENEMY_TYPES.boss.maxHp);
+  boss.setData("speed", ENEMY_TYPES.boss.speed);
+  boss.setData("expValue", ENEMY_TYPES.boss.expValue);
+  enemies.add(boss);
+  return boss;
 }
 
 
@@ -596,6 +667,23 @@ function scheduleNextEnemySpawn(scene) {
   });
 }
 
+function scheduleBossSpawn(scene) {
+  if (isRunOver) {
+    return;
+  }
+
+  bossSpawnTimer = scene.time.addEvent({
+    delay: BOSS_SPAWN_INTERVAL_MS,
+    loop: true,
+    callback: () => {
+      if (isRunOver) {
+        return;
+      }
+      spawnBoss(scene);
+    }
+  });
+}
+
 function endRun(scene) {
   if (isRunOver || hasGrantedGameOverReward) {
     return;
@@ -612,6 +700,10 @@ function endRun(scene) {
     enemySpawnTimer.remove(false);
     enemySpawnTimer = null;
   }
+  if (bossSpawnTimer) {
+    bossSpawnTimer.remove(false);
+    bossSpawnTimer = null;
+  }
 
   enemies.children.each((enemy) => {
     if (enemy?.active) {
@@ -620,7 +712,7 @@ function endRun(scene) {
   });
 
   const survivalTimeSeconds = Math.floor((scene.time.now - runStartTimeMs) / 1000);
-  const baseEarnedResource = killCount + Math.floor(survivalTimeSeconds / 10);
+  const baseEarnedResource = killCount + (bossKillCount * BOSS_REWARD_BONUS) + Math.floor(survivalTimeSeconds / 10);
   const earnedResource = Math.floor(baseEarnedResource * getResourceGainMultiplier());
   metaState.permanentResource += earnedResource;
   savePermanentResource(metaState);
@@ -715,6 +807,9 @@ function showNextLevelUpChoice() {
   if (enemySpawnTimer) {
     enemySpawnTimer.paused = true;
   }
+  if (bossSpawnTimer) {
+    bossSpawnTimer.paused = true;
+  }
   currentLevelUpOptions = Phaser.Utils.Array.Shuffle([...LEVEL_UP_OPTIONS]).slice(0, 3);
 
   levelUpTitleText = activeScene.add.text(config.width / 2, config.height / 2 - 90, "Level Up!", {
@@ -795,6 +890,9 @@ function resumePhysicsIfNeeded(scene) {
   if (enemySpawnTimer) {
     enemySpawnTimer.paused = false;
   }
+  if (bossSpawnTimer) {
+    bossSpawnTimer.paused = false;
+  }
 }
 
 function getPermanentUpgradeLevel(upgradeId) {
@@ -855,6 +953,7 @@ function updateResultText() {
   resultText.setText(
     `Survival Time: ${gameOverSummary.survivalTimeSeconds}s\n`
     + `Kills: ${killCount}\n`
+    + `Boss Kills: ${bossKillCount}\n`
     + `Final Level: ${runState.runLevel}\n`
     + `Earned Permanent Resource: +${gameOverSummary.earnedResource}\n`
     + `Total Permanent Resource: ${metaState.permanentResource}\n\n`
