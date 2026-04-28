@@ -1,5 +1,5 @@
 import { getExpRequiredForLevel, runState } from "./data/runState.js";
-import { metaState } from "./data/metaState.js";
+import { loadPermanentResource, metaState, savePermanentResource } from "./data/metaState.js";
 
 const PLAYER_MOVEMENT = {
   BASE_SPEED: 250
@@ -99,6 +99,7 @@ function preload() {
 }
 
 function create() {
+  loadPermanentResource(metaState);
   activeScene = this;
   runStartTimeMs = this.time.now;
   hasGrantedGameOverReward = false;
@@ -407,6 +408,7 @@ function endRun(scene) {
   const survivalTimeSeconds = Math.floor((scene.time.now - runStartTimeMs) / 1000);
   const earnedResource = killCount + Math.floor(survivalTimeSeconds / 10);
   metaState.permanentResource += earnedResource;
+  savePermanentResource(metaState);
 
   const centerX = config.width / 2;
   const centerY = config.height / 2;
