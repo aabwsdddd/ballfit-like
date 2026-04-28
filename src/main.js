@@ -14,8 +14,32 @@ const PLAYER_MAX_HP = 10;
 const ENEMY_CONTACT_DAMAGE = 1;
 const PLAYER_HIT_COOLDOWN_MS = 500;
 
-const ENEMY_SPEED = 120;
-const ENEMY_BASE_HP = 3;
+const ENEMY_TYPES = {
+  basic: {
+    id: "basic",
+    color: 0xef4444,
+    radius: 18,
+    speed: 120,
+    maxHp: 3,
+    expValue: 1
+  },
+  fast: {
+    id: "fast",
+    color: 0xf97316,
+    radius: 14,
+    speed: 180,
+    maxHp: 2,
+    expValue: 1
+  },
+  tank: {
+    id: "tank",
+    color: 0xa855f7,
+    radius: 24,
+    speed: 80,
+    maxHp: 8,
+    expValue: 3
+  }
+};
 const ENEMY_MAX_ACTIVE = 20;
 const ENEMY_INITIAL_SPAWN_INTERVAL_MS = 3000;
 const ENEMY_MIN_SPAWN_INTERVAL_MS = 800;
@@ -25,7 +49,6 @@ const ATTACK_COOLDOWN_MS = 500;
 const PROJECTILE_DAMAGE = 1;
 const PROJECTILE_SPEED = 420;
 const PROJECTILE_RADIUS = 5;
-const EXP_ORB_VALUE = 1;
 const EXP_ORB_RADIUS = 6;
 const LEVEL_UP_OPTIONS = [
   { id: "move_speed_10", label: "1) Move Speed +10%" },
@@ -140,12 +163,13 @@ function create() {
   this.physics.add.overlap(projectiles, enemies, (projectile, targetEnemy) => {
     projectile.destroy();
 
-    const currentHp = targetEnemy.getData("hp") ?? ENEMY_BASE_HP;
+    const currentHp = targetEnemy.getData("hp") ?? targetEnemy.getData("maxHp") ?? ENEMY_TYPES.basic.maxHp;
     const nextHp = currentHp - playerStats.getProjectileDamage();
     targetEnemy.setData("hp", nextHp);
 
     if (nextHp <= 0) {
-      spawnExpOrb(this, targetEnemy.x, targetEnemy.y);
+      const expValue = targetEnemy.getData("expValue") ?? ENEMY_TYPES.basic.expValue;
+      spawnExpOrb(this, targetEnemy.x, targetEnemy.y, expValue);
       targetEnemy.destroy();
       killCount += 1;
     }
@@ -157,7 +181,8 @@ function create() {
     }
 
     expOrb.destroy();
-    runState.exp += EXP_ORB_VALUE;
+    const expValue = expOrb.getData("expValue") ?? ENEMY_TYPES.basic.expValue;
+    runState.exp += expValue;
     processRunLevelUps();
     console.log("[RunState] EXP:", runState.exp);
   });
@@ -263,7 +288,8 @@ function update() {
     const enemyDirection = new Phaser.Math.Vector2(enemyDirectionX, enemyDirectionY);
 
     if (enemyDirection.lengthSq() > 0) {
-      enemyDirection.normalize().scale(ENEMY_SPEED);
+      const enemySpeed = enemy.getData("speed") ?? ENEMY_TYPES.basic.speed;
+      enemyDirection.normalize().scale(enemySpeed);
       enemy.body.setVelocity(enemyDirection.x, enemyDirection.y);
     } else {
       enemy.body.setVelocity(0);
@@ -328,13 +354,14 @@ function fireProjectile(scene, targetEnemy) {
   projectile.body.setVelocity(direction.x, direction.y);
 }
 
-function spawnExpOrb(scene, x, y) {
+function spawnExpOrb(scene, x, y, expValue = ENEMY_TYPES.basic.expValue) {
   if (isRunOver) {
     return null;
   }
 
   const expOrb = scene.add.circle(x, y, EXP_ORB_RADIUS, 0xfde047);
   scene.physics.add.existing(expOrb);
+  expOrb.setData("expValue", expValue);
   expOrbs.add(expOrb);
   return expOrb;
 }
@@ -348,20 +375,47 @@ function spawnEnemy(scene) {
     return null;
   }
 
-  const spawnPoint = getEnemySpawnPoint();
+  const enemyType = chooseEnemyType(scene.time.now);
+  const spawnPoint = getEnemySpawnPoint(enemyType.radius);
   if (!spawnPoint) {
     return null;
   }
 
-  const enemy = scene.add.circle(spawnPoint.x, spawnPoint.y, 18, 0xef4444);
+  const enemy = scene.add.circle(spawnPoint.x, spawnPoint.y, enemyType.radius, enemyType.color);
   scene.physics.add.existing(enemy);
   enemy.body.setCollideWorldBounds(true);
-  enemy.setData("hp", ENEMY_BASE_HP);
+  enemy.setData("typeId", enemyType.id);
+  enemy.setData("hp", enemyType.maxHp);
+  enemy.setData("maxHp", enemyType.maxHp);
+  enemy.setData("speed", enemyType.speed);
+  enemy.setData("expValue", enemyType.expValue);
   enemies.add(enemy);
   return enemy;
 }
 
-function getEnemySpawnPoint() {
+
+function chooseEnemyType(currentTimeMs) {
+  const elapsedMs = Math.max(0, currentTimeMs - runStartTimeMs);
+  const progress = Phaser.Math.Clamp(elapsedMs / 240000, 0, 1);
+
+  const basicWeight = Phaser.Math.Linear(0.8, 0.5, progress);
+  const fastWeight = Phaser.Math.Linear(0.15, 0.3, progress);
+  const tankWeight = Phaser.Math.Linear(0.05, 0.2, progress);
+  const totalWeight = basicWeight + fastWeight + tankWeight;
+  const randomPick = Math.random() * totalWeight;
+
+  if (randomPick < basicWeight) {
+    return ENEMY_TYPES.basic;
+  }
+
+  if (randomPick < basicWeight + fastWeight) {
+    return ENEMY_TYPES.fast;
+  }
+
+  return ENEMY_TYPES.tank;
+}
+
+function getEnemySpawnPoint(enemyRadius = ENEMY_TYPES.basic.radius) {
   const maxAttempts = 20;
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
@@ -371,15 +425,15 @@ function getEnemySpawnPoint() {
 
     if (side === 0) {
       x = Phaser.Math.Between(0, config.width);
-      y = 18;
+      y = enemyRadius;
     } else if (side === 1) {
       x = Phaser.Math.Between(0, config.width);
-      y = config.height - 18;
+      y = config.height - enemyRadius;
     } else if (side === 2) {
-      x = 18;
+      x = enemyRadius;
       y = Phaser.Math.Between(0, config.height);
     } else {
-      x = config.width - 18;
+      x = config.width - enemyRadius;
       y = Phaser.Math.Between(0, config.height);
     }
 
