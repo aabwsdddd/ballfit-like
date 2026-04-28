@@ -20,6 +20,8 @@ const ATTACK_COOLDOWN_MS = 500;
 const PROJECTILE_DAMAGE = 1;
 const PROJECTILE_SPEED = 420;
 const PROJECTILE_RADIUS = 5;
+const EXP_ORB_VALUE = 1;
+const EXP_ORB_RADIUS = 6;
 
 const playerStats = {
   moveSpeedMultiplier: 1,
@@ -58,6 +60,7 @@ let enemies;
 let cursors;
 let keys;
 let projectiles;
+let expOrbs;
 let lastAttackTime = 0;
 let killCount = 0;
 let currentEnemySpawnInterval = ENEMY_INITIAL_SPAWN_INTERVAL_MS;
@@ -83,6 +86,7 @@ function create() {
   spawnEnemy(this);
 
   projectiles = this.physics.add.group();
+  expOrbs = this.physics.add.group();
 
   this.physics.add.overlap(projectiles, enemies, (projectile, targetEnemy) => {
     projectile.destroy();
@@ -92,9 +96,20 @@ function create() {
     targetEnemy.setData("hp", nextHp);
 
     if (nextHp <= 0) {
+      spawnExpOrb(this, targetEnemy.x, targetEnemy.y);
       targetEnemy.destroy();
       killCount += 1;
     }
+  });
+
+  this.physics.add.overlap(player, expOrbs, (_, expOrb) => {
+    if (isRunOver || !expOrb?.active) {
+      return;
+    }
+
+    expOrb.destroy();
+    runState.exp += EXP_ORB_VALUE;
+    console.log("[RunState] EXP:", runState.exp);
   });
 
   this.physics.add.overlap(player, enemies, () => {
@@ -207,6 +222,17 @@ function fireProjectile(scene, targetEnemy) {
 
   direction.normalize().scale(PROJECTILE_SPEED);
   projectile.body.setVelocity(direction.x, direction.y);
+}
+
+function spawnExpOrb(scene, x, y) {
+  if (isRunOver) {
+    return null;
+  }
+
+  const expOrb = scene.add.circle(x, y, EXP_ORB_RADIUS, 0xfde047);
+  scene.physics.add.existing(expOrb);
+  expOrbs.add(expOrb);
+  return expOrb;
 }
 
 function spawnEnemy(scene) {
