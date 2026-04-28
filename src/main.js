@@ -5,6 +5,10 @@ const PLAYER_MOVEMENT = {
   BASE_SPEED: 250
 };
 
+const PLAYER_MAX_HP = 10;
+const ENEMY_CONTACT_DAMAGE = 1;
+const PLAYER_HIT_COOLDOWN_MS = 500;
+
 const ENEMY_SPEED = 120;
 const ENEMY_BASE_HP = 3;
 const ENEMY_MAX_ACTIVE = 20;
@@ -58,6 +62,11 @@ let lastAttackTime = 0;
 let killCount = 0;
 let currentEnemySpawnInterval = ENEMY_INITIAL_SPAWN_INTERVAL_MS;
 let enemySpawnTimer;
+let lastPlayerHitTime = -PLAYER_HIT_COOLDOWN_MS;
+let isRunOver = false;
+let gameOverText;
+let restartText;
+let restartKey;
 
 function preload() {
 }
@@ -67,6 +76,8 @@ function create() {
 
   this.physics.add.existing(player);
   player.body.setCollideWorldBounds(true);
+  player.setData("maxHp", PLAYER_MAX_HP);
+  player.setData("currentHp", PLAYER_MAX_HP);
 
   enemies = this.physics.add.group();
   spawnEnemy(this);
@@ -86,6 +97,21 @@ function create() {
     }
   });
 
+  this.physics.add.overlap(player, enemies, () => {
+    if (isRunOver || this.time.now < lastPlayerHitTime + PLAYER_HIT_COOLDOWN_MS) {
+      return;
+    }
+
+    lastPlayerHitTime = this.time.now;
+    const currentHp = player.getData("currentHp") ?? PLAYER_MAX_HP;
+    const nextHp = currentHp - ENEMY_CONTACT_DAMAGE;
+    player.setData("currentHp", nextHp);
+
+    if (nextHp <= 0) {
+      endRun(this);
+    }
+  });
+
   scheduleNextEnemySpawn(this);
 
   cursors = this.input.keyboard.createCursorKeys();
@@ -96,9 +122,19 @@ function create() {
     left: Phaser.Input.Keyboard.KeyCodes.A,
     right: Phaser.Input.Keyboard.KeyCodes.D
   });
+
+  restartKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.R);
 }
 
 function update() {
+  if (isRunOver) {
+    player.body.setVelocity(0);
+    if (Phaser.Input.Keyboard.JustDown(restartKey)) {
+      restartRun();
+    }
+    return;
+  }
+
   const speed = playerStats.getMoveSpeed();
 
   player.body.setVelocity(0);
@@ -174,6 +210,10 @@ function fireProjectile(scene, targetEnemy) {
 }
 
 function spawnEnemy(scene) {
+  if (isRunOver) {
+    return null;
+  }
+
   if (enemies.countActive(true) >= ENEMY_MAX_ACTIVE) {
     return null;
   }
@@ -223,9 +263,17 @@ function getEnemySpawnPoint() {
 }
 
 function scheduleNextEnemySpawn(scene) {
+  if (isRunOver) {
+    return;
+  }
+
   enemySpawnTimer = scene.time.addEvent({
     delay: currentEnemySpawnInterval,
     callback: () => {
+      if (isRunOver) {
+        return;
+      }
+
       spawnEnemy(scene);
       currentEnemySpawnInterval = Math.max(
         ENEMY_MIN_SPAWN_INTERVAL_MS,
@@ -234,6 +282,42 @@ function scheduleNextEnemySpawn(scene) {
       scheduleNextEnemySpawn(scene);
     }
   });
+}
+
+function endRun(scene) {
+  if (isRunOver) {
+    return;
+  }
+
+  isRunOver = true;
+  player.body.setVelocity(0);
+
+  if (enemySpawnTimer) {
+    enemySpawnTimer.remove(false);
+    enemySpawnTimer = null;
+  }
+
+  enemies.children.each((enemy) => {
+    if (enemy?.active) {
+      enemy.body.setVelocity(0);
+    }
+  });
+
+  gameOverText = scene.add.text(config.width / 2, config.height / 2 - 20, "Game Over", {
+    fontSize: "48px",
+    color: "#ffffff"
+  }).setOrigin(0.5);
+
+  restartText = scene.add.text(config.width / 2, config.height / 2 + 30, "Press R to Restart", {
+    fontSize: "24px",
+    color: "#ffffff"
+  }).setOrigin(0.5);
+}
+
+function restartRun() {
+  if (typeof window !== "undefined" && window.location) {
+    window.location.reload();
+  }
 }
 
 function getNearestActiveEnemy() {
