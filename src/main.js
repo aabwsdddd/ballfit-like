@@ -49,6 +49,11 @@ const ATTACK_COOLDOWN_MS = 500;
 const PROJECTILE_DAMAGE = 1;
 const PROJECTILE_SPEED = 420;
 const PROJECTILE_RADIUS = 5;
+const ORBIT_BALL_RADIUS_FROM_PLAYER = 70;
+const ORBIT_BALL_ROTATION_SPEED = 0.004;
+const ORBIT_BALL_SIZE = 10;
+const ORBIT_BALL_DAMAGE = 1;
+const ORBIT_BALL_HIT_COOLDOWN_MS = 500;
 const EXP_ORB_RADIUS = 6;
 const LEVEL_UP_OPTIONS = [
   { id: "move_speed_10", label: "1) Move Speed +10%" },
@@ -108,6 +113,8 @@ let cursors;
 let keys;
 let projectiles;
 let expOrbs;
+let orbitBall;
+let orbitBallAngle = 0;
 let lastAttackTime = 0;
 let killCount = 0;
 let currentEnemySpawnInterval = ENEMY_INITIAL_SPAWN_INTERVAL_MS;
@@ -159,6 +166,15 @@ function create() {
 
   projectiles = this.physics.add.group();
   expOrbs = this.physics.add.group();
+  orbitBall = this.add.circle(
+    player.x + ORBIT_BALL_RADIUS_FROM_PLAYER,
+    player.y,
+    ORBIT_BALL_SIZE,
+    0x3b82f6
+  );
+  this.physics.add.existing(orbitBall);
+  orbitBall.body.setAllowGravity(false);
+  orbitBall.body.setImmovable(true);
 
   this.physics.add.overlap(projectiles, enemies, (projectile, targetEnemy) => {
     projectile.destroy();
@@ -202,6 +218,30 @@ function create() {
     }
   });
 
+  this.physics.add.overlap(orbitBall, enemies, (_, targetEnemy) => {
+    if (isRunOver || isLevelUpPaused || !targetEnemy?.active) {
+      return;
+    }
+
+    const now = this.time.now;
+    const lastOrbitBallHitTime = targetEnemy.getData("lastOrbitBallHitTime") ?? -ORBIT_BALL_HIT_COOLDOWN_MS;
+    if (now < lastOrbitBallHitTime + ORBIT_BALL_HIT_COOLDOWN_MS) {
+      return;
+    }
+
+    targetEnemy.setData("lastOrbitBallHitTime", now);
+    const currentHp = targetEnemy.getData("hp") ?? targetEnemy.getData("maxHp") ?? ENEMY_TYPES.basic.maxHp;
+    const nextHp = currentHp - ORBIT_BALL_DAMAGE;
+    targetEnemy.setData("hp", nextHp);
+
+    if (nextHp <= 0) {
+      const expValue = targetEnemy.getData("expValue") ?? ENEMY_TYPES.basic.expValue;
+      spawnExpOrb(this, targetEnemy.x, targetEnemy.y, expValue);
+      targetEnemy.destroy();
+      killCount += 1;
+    }
+  });
+
   scheduleNextEnemySpawn(this);
 
   cursors = this.input.keyboard.createCursorKeys();
@@ -228,7 +268,7 @@ function create() {
   updateHudText();
 }
 
-function update() {
+function update(_, delta) {
   updateHudText();
 
   if (isRunOver) {
@@ -277,6 +317,7 @@ function update() {
   }
 
   player.body.velocity.normalize().scale(speed);
+  updateOrbitBallPosition(delta);
 
   enemies.children.each((enemy) => {
     if (!enemy?.active) {
@@ -313,6 +354,19 @@ function update() {
     }
   });
 
+}
+
+function updateOrbitBallPosition(delta) {
+  if (!orbitBall?.active || !player?.active) {
+    return;
+  }
+
+  orbitBallAngle += ORBIT_BALL_ROTATION_SPEED * delta;
+  orbitBall.setPosition(
+    player.x + (Math.cos(orbitBallAngle) * ORBIT_BALL_RADIUS_FROM_PLAYER),
+    player.y + (Math.sin(orbitBallAngle) * ORBIT_BALL_RADIUS_FROM_PLAYER)
+  );
+  orbitBall.body.updateFromGameObject();
 }
 
 function updateHudText() {
