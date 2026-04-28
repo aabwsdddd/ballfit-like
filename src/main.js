@@ -27,8 +27,14 @@ const LEVEL_UP_OPTIONS = [
   { id: "projectile_damage_1", label: "2) Projectile Damage +1" },
   { id: "attack_cooldown_10", label: "3) Attack Cooldown -10%" }
 ];
+const PERMANENT_UPGRADE_COST_BASE = 10;
+const PERMANENT_UPGRADE_COST_PER_LEVEL = 5;
+const STARTING_HP_BONUS_PER_LEVEL = 10;
+const STARTING_DAMAGE_BONUS_PER_LEVEL = 1;
+const RESOURCE_GAIN_BONUS_PER_LEVEL = 0.1;
 
 const playerStats = {
+  baseProjectileDamage: PROJECTILE_DAMAGE,
   moveSpeedMultiplier: 1,
   projectileDamageBonus: 0,
   attackCooldownMultiplier: 1,
@@ -36,7 +42,7 @@ const playerStats = {
     return PLAYER_MOVEMENT.BASE_SPEED * this.moveSpeedMultiplier;
   },
   getProjectileDamage() {
-    return PROJECTILE_DAMAGE + this.projectileDamageBonus;
+    return this.baseProjectileDamage + this.projectileDamageBonus;
   },
   getAttackCooldownMs() {
     return ATTACK_COOLDOWN_MS * this.attackCooldownMultiplier;
@@ -94,6 +100,7 @@ let runStartTimeMs = 0;
 let hasGrantedGameOverReward = false;
 let resultPanel;
 let resultText;
+let gameOverSummary = null;
 
 function preload() {
 }
@@ -107,8 +114,9 @@ function create() {
 
   this.physics.add.existing(player);
   player.body.setCollideWorldBounds(true);
-  player.setData("maxHp", PLAYER_MAX_HP);
-  player.setData("currentHp", PLAYER_MAX_HP);
+  player.setData("maxHp", getStartingMaxHp());
+  player.setData("currentHp", getStartingMaxHp());
+  playerStats.baseProjectileDamage = getStartingProjectileDamage();
 
   enemies = this.physics.add.group();
   spawnEnemy(this);
@@ -185,6 +193,14 @@ function update() {
   updateHudText();
 
   if (isRunOver) {
+    if (Phaser.Input.Keyboard.JustDown(levelChoiceKeys.option1)) {
+      tryPurchasePermanentUpgrade("startingHp");
+    } else if (Phaser.Input.Keyboard.JustDown(levelChoiceKeys.option2)) {
+      tryPurchasePermanentUpgrade("startingDamage");
+    } else if (Phaser.Input.Keyboard.JustDown(levelChoiceKeys.option3)) {
+      tryPurchasePermanentUpgrade("resourceGain");
+    }
+
     player.body.setVelocity(0);
     if (Phaser.Input.Keyboard.JustDown(restartKey)) {
       restartRun();
@@ -406,9 +422,14 @@ function endRun(scene) {
   });
 
   const survivalTimeSeconds = Math.floor((scene.time.now - runStartTimeMs) / 1000);
-  const earnedResource = killCount + Math.floor(survivalTimeSeconds / 10);
+  const baseEarnedResource = killCount + Math.floor(survivalTimeSeconds / 10);
+  const earnedResource = Math.floor(baseEarnedResource * getResourceGainMultiplier());
   metaState.permanentResource += earnedResource;
   savePermanentResource(metaState);
+  gameOverSummary = {
+    survivalTimeSeconds,
+    earnedResource
+  };
 
   const centerX = config.width / 2;
   const centerY = config.height / 2;
@@ -422,23 +443,15 @@ function endRun(scene) {
     color: "#ffffff"
   }).setOrigin(0.5).setDepth(1201);
 
-  resultText = scene.add.text(
-    centerX,
-    centerY - 10,
-    `Survival Time: ${survivalTimeSeconds}s\n`
-    + `Kills: ${killCount}\n`
-    + `Final Level: ${runState.runLevel}\n`
-    + `Earned Permanent Resource: +${earnedResource}\n`
-    + `Total Permanent Resource: ${metaState.permanentResource}`,
-    {
-      fontSize: "26px",
-      color: "#ffffff",
-      align: "center",
-      lineSpacing: 8
-    }
-  ).setOrigin(0.5).setDepth(1201);
+  resultText = scene.add.text(centerX, centerY - 10, "", {
+    fontSize: "26px",
+    color: "#ffffff",
+    align: "center",
+    lineSpacing: 8
+  }).setOrigin(0.5).setDepth(1201);
+  updateResultText();
 
-  restartText = scene.add.text(centerX, centerY + 128, "Press R to Restart", {
+  restartText = scene.add.text(centerX, centerY + 128, "Press 1/2/3 to Buy Upgrade · Press R to Restart", {
     fontSize: "24px",
     color: "#ffffff"
   }).setOrigin(0.5).setDepth(1201);
@@ -571,4 +584,59 @@ function resumePhysicsIfNeeded(scene) {
   if (enemySpawnTimer) {
     enemySpawnTimer.paused = false;
   }
+}
+
+function getPermanentUpgradeLevel(upgradeId) {
+  return Math.max(0, Math.floor(metaState.permanentUpgrades?.[upgradeId] ?? 0));
+}
+
+function getPermanentUpgradeCost(upgradeId) {
+  return PERMANENT_UPGRADE_COST_BASE + (getPermanentUpgradeLevel(upgradeId) * PERMANENT_UPGRADE_COST_PER_LEVEL);
+}
+
+function getStartingMaxHp() {
+  return PLAYER_MAX_HP + (getPermanentUpgradeLevel("startingHp") * STARTING_HP_BONUS_PER_LEVEL);
+}
+
+function getStartingProjectileDamage() {
+  return PROJECTILE_DAMAGE + (getPermanentUpgradeLevel("startingDamage") * STARTING_DAMAGE_BONUS_PER_LEVEL);
+}
+
+function getResourceGainMultiplier() {
+  return 1 + (getPermanentUpgradeLevel("resourceGain") * RESOURCE_GAIN_BONUS_PER_LEVEL);
+}
+
+function tryPurchasePermanentUpgrade(upgradeId) {
+  if (!isRunOver) {
+    return false;
+  }
+
+  const cost = getPermanentUpgradeCost(upgradeId);
+  if (metaState.permanentResource < cost) {
+    return false;
+  }
+
+  metaState.permanentResource -= cost;
+  metaState.permanentUpgrades[upgradeId] = getPermanentUpgradeLevel(upgradeId) + 1;
+  savePermanentResource(metaState);
+  updateResultText();
+  return true;
+}
+
+function updateResultText() {
+  if (!resultText || !gameOverSummary) {
+    return;
+  }
+
+  resultText.setText(
+    `Survival Time: ${gameOverSummary.survivalTimeSeconds}s\n`
+    + `Kills: ${killCount}\n`
+    + `Final Level: ${runState.runLevel}\n`
+    + `Earned Permanent Resource: +${gameOverSummary.earnedResource}\n`
+    + `Total Permanent Resource: ${metaState.permanentResource}\n\n`
+    + "Permanent Upgrades (Press 1 / 2 / 3):\n"
+    + `1) Starting HP +10 | Lv.${getPermanentUpgradeLevel("startingHp")} | Cost: ${getPermanentUpgradeCost("startingHp")}\n`
+    + `2) Starting Damage +1 | Lv.${getPermanentUpgradeLevel("startingDamage")} | Cost: ${getPermanentUpgradeCost("startingDamage")}\n`
+    + `3) Resource Gain +10% | Lv.${getPermanentUpgradeLevel("resourceGain")} | Cost: ${getPermanentUpgradeCost("resourceGain")}`
+  );
 }
