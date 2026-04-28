@@ -89,6 +89,7 @@ let levelUpOptionTexts = [];
 let pendingLevelUpChoices = 0;
 let isLevelUpPaused = false;
 let activeScene;
+let hudText;
 
 function preload() {
 }
@@ -165,9 +166,17 @@ function create() {
     option2: Phaser.Input.Keyboard.KeyCodes.TWO,
     option3: Phaser.Input.Keyboard.KeyCodes.THREE
   });
+
+  hudText = this.add.text(16, 16, "", {
+    fontSize: "20px",
+    color: "#ffffff"
+  }).setOrigin(0, 0).setDepth(1000);
+  updateHudText();
 }
 
 function update() {
+  updateHudText();
+
   if (isRunOver) {
     player.body.setVelocity(0);
     if (Phaser.Input.Keyboard.JustDown(restartKey)) {
@@ -239,6 +248,25 @@ function update() {
     }
   });
 
+}
+
+function updateHudText() {
+  if (!hudText || !player) {
+    return;
+  }
+
+  const currentHp = Math.max(0, player.getData("currentHp") ?? PLAYER_MAX_HP);
+  const maxHp = player.getData("maxHp") ?? PLAYER_MAX_HP;
+  const requiredExp = getExpRequiredForLevel(runState.runLevel);
+  const gameStatus = isRunOver ? "\nStatus: Game Over" : "";
+
+  hudText.setText(
+    `Player HP: ${currentHp} / ${maxHp}\n`
+    + `Run Level: ${runState.runLevel}\n`
+    + `EXP: ${runState.exp} / ${requiredExp}\n`
+    + `killCount: ${killCount}`
+    + gameStatus
+  );
 }
 
 function fireProjectile(scene, targetEnemy) {
