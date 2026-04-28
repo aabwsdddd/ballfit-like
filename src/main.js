@@ -7,6 +7,11 @@ const PLAYER_MOVEMENT = {
 
 const ENEMY_SPEED = 120;
 const ENEMY_BASE_HP = 3;
+const ENEMY_MAX_ACTIVE = 20;
+const ENEMY_INITIAL_SPAWN_INTERVAL_MS = 3000;
+const ENEMY_MIN_SPAWN_INTERVAL_MS = 800;
+const ENEMY_SPAWN_INTERVAL_DECAY_MS = 100;
+const ENEMY_MIN_DISTANCE_FROM_PLAYER = 180;
 const ATTACK_COOLDOWN_MS = 500;
 const PROJECTILE_DAMAGE = 1;
 const PROJECTILE_SPEED = 420;
@@ -45,12 +50,14 @@ const config = {
 const game = new Phaser.Game(config);
 
 let player;
-let enemy;
+let enemies;
 let cursors;
 let keys;
 let projectiles;
 let lastAttackTime = 0;
 let killCount = 0;
+let currentEnemySpawnInterval = ENEMY_INITIAL_SPAWN_INTERVAL_MS;
+let enemySpawnTimer;
 
 function preload() {
 }
@@ -61,14 +68,12 @@ function create() {
   this.physics.add.existing(player);
   player.body.setCollideWorldBounds(true);
 
-  enemy = this.add.circle(100, 100, 18, 0xef4444);
-  this.physics.add.existing(enemy);
-  enemy.body.setCollideWorldBounds(true);
-  enemy.setData("hp", ENEMY_BASE_HP);
+  enemies = this.physics.add.group();
+  spawnEnemy(this);
 
   projectiles = this.physics.add.group();
 
-  this.physics.add.overlap(projectiles, enemy, (projectile, targetEnemy) => {
+  this.physics.add.overlap(projectiles, enemies, (projectile, targetEnemy) => {
     projectile.destroy();
 
     const currentHp = targetEnemy.getData("hp") ?? ENEMY_BASE_HP;
@@ -77,10 +82,11 @@ function create() {
 
     if (nextHp <= 0) {
       targetEnemy.destroy();
-      enemy = null;
       killCount += 1;
     }
   });
+
+  scheduleNextEnemySpawn(this);
 
   cursors = this.input.keyboard.createCursorKeys();
 
@@ -94,7 +100,6 @@ function create() {
 
 function update() {
   const speed = playerStats.getMoveSpeed();
-  const enemySpeed = ENEMY_SPEED;
 
   player.body.setVelocity(0);
 
@@ -112,21 +117,26 @@ function update() {
 
   player.body.velocity.normalize().scale(speed);
 
-  if (enemy?.active) {
+  enemies.children.each((enemy) => {
+    if (!enemy?.active) {
+      return;
+    }
+
     const enemyDirectionX = player.x - enemy.x;
     const enemyDirectionY = player.y - enemy.y;
     const enemyDirection = new Phaser.Math.Vector2(enemyDirectionX, enemyDirectionY);
 
     if (enemyDirection.lengthSq() > 0) {
-      enemyDirection.normalize().scale(enemySpeed);
+      enemyDirection.normalize().scale(ENEMY_SPEED);
       enemy.body.setVelocity(enemyDirection.x, enemyDirection.y);
     } else {
       enemy.body.setVelocity(0);
     }
-  }
+  });
 
-  if (enemy?.active && this.time.now >= lastAttackTime + ATTACK_COOLDOWN_MS) {
-    fireProjectile(this);
+  const nearestEnemy = getNearestActiveEnemy();
+  if (nearestEnemy && this.time.now >= lastAttackTime + ATTACK_COOLDOWN_MS) {
+    fireProjectile(this, nearestEnemy);
     lastAttackTime = this.time.now;
   }
 
@@ -143,8 +153,8 @@ function update() {
 
 }
 
-function fireProjectile(scene) {
-  if (!enemy?.active) {
+function fireProjectile(scene, targetEnemy) {
+  if (!targetEnemy?.active) {
     return;
   }
 
@@ -152,7 +162,7 @@ function fireProjectile(scene) {
   scene.physics.add.existing(projectile);
   projectiles.add(projectile);
 
-  const direction = new Phaser.Math.Vector2(enemy.x - player.x, enemy.y - player.y);
+  const direction = new Phaser.Math.Vector2(targetEnemy.x - player.x, targetEnemy.y - player.y);
 
   if (direction.lengthSq() === 0) {
     projectile.body.setVelocity(0);
@@ -161,4 +171,86 @@ function fireProjectile(scene) {
 
   direction.normalize().scale(PROJECTILE_SPEED);
   projectile.body.setVelocity(direction.x, direction.y);
+}
+
+function spawnEnemy(scene) {
+  if (enemies.countActive(true) >= ENEMY_MAX_ACTIVE) {
+    return null;
+  }
+
+  const spawnPoint = getEnemySpawnPoint();
+  if (!spawnPoint) {
+    return null;
+  }
+
+  const enemy = scene.add.circle(spawnPoint.x, spawnPoint.y, 18, 0xef4444);
+  scene.physics.add.existing(enemy);
+  enemy.body.setCollideWorldBounds(true);
+  enemy.setData("hp", ENEMY_BASE_HP);
+  enemies.add(enemy);
+  return enemy;
+}
+
+function getEnemySpawnPoint() {
+  const maxAttempts = 20;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const side = Phaser.Math.Between(0, 3);
+    let x = 0;
+    let y = 0;
+
+    if (side === 0) {
+      x = Phaser.Math.Between(0, config.width);
+      y = 18;
+    } else if (side === 1) {
+      x = Phaser.Math.Between(0, config.width);
+      y = config.height - 18;
+    } else if (side === 2) {
+      x = 18;
+      y = Phaser.Math.Between(0, config.height);
+    } else {
+      x = config.width - 18;
+      y = Phaser.Math.Between(0, config.height);
+    }
+
+    const distanceFromPlayer = Phaser.Math.Distance.Between(x, y, player.x, player.y);
+    if (distanceFromPlayer >= ENEMY_MIN_DISTANCE_FROM_PLAYER) {
+      return { x, y };
+    }
+  }
+
+  return null;
+}
+
+function scheduleNextEnemySpawn(scene) {
+  enemySpawnTimer = scene.time.addEvent({
+    delay: currentEnemySpawnInterval,
+    callback: () => {
+      spawnEnemy(scene);
+      currentEnemySpawnInterval = Math.max(
+        ENEMY_MIN_SPAWN_INTERVAL_MS,
+        currentEnemySpawnInterval - ENEMY_SPAWN_INTERVAL_DECAY_MS
+      );
+      scheduleNextEnemySpawn(scene);
+    }
+  });
+}
+
+function getNearestActiveEnemy() {
+  let nearestEnemy = null;
+  let nearestDistanceSq = Number.POSITIVE_INFINITY;
+
+  enemies.children.each((enemy) => {
+    if (!enemy?.active) {
+      return;
+    }
+
+    const distanceSq = Phaser.Math.Distance.Squared(player.x, player.y, enemy.x, enemy.y);
+    if (distanceSq < nearestDistanceSq) {
+      nearestDistanceSq = distanceSq;
+      nearestEnemy = enemy;
+    }
+  });
+
+  return nearestEnemy;
 }
