@@ -61,7 +61,8 @@ const LEVEL_UP_OPTIONS = [
   { id: "attack_cooldown_10", label: "Attack Cooldown -10%" },
   { id: "orbit_ball_damage_1", label: "Orbit Ball Damage +1" },
   { id: "orbit_ball_size_20", label: "Orbit Ball Size +20%" },
-  { id: "orbit_ball_rotation_speed_15", label: "Orbit Ball Rotation Speed +15%" }
+  { id: "orbit_ball_rotation_speed_15", label: "Orbit Ball Rotation Speed +15%" },
+  { id: "orbit_ball_count_1", label: "Orbit Ball Count +1" }
 ];
 const PERMANENT_UPGRADE_COST_BASE = 10;
 const PERMANENT_UPGRADE_COST_PER_LEVEL = 5;
@@ -73,12 +74,14 @@ const playerStats = {
   baseProjectileDamage: PROJECTILE_DAMAGE,
   baseOrbitBallDamage: ORBIT_BALL_DAMAGE,
   baseOrbitBallSize: ORBIT_BALL_SIZE,
+  baseOrbitBallCount: 1,
   moveSpeedMultiplier: 1,
   projectileDamageBonus: 0,
   attackCooldownMultiplier: 1,
   orbitBallDamageBonus: 0,
   orbitBallSizeMultiplier: 1,
   orbitBallRotationSpeedMultiplier: 1,
+  orbitBallCountBonus: 0,
   getMoveSpeed() {
     return PLAYER_MOVEMENT.BASE_SPEED * this.moveSpeedMultiplier;
   },
@@ -96,6 +99,9 @@ const playerStats = {
   },
   getOrbitBallRotationSpeed() {
     return ORBIT_BALL_ROTATION_SPEED * this.orbitBallRotationSpeedMultiplier;
+  },
+  getOrbitBallCount() {
+    return Math.max(1, Math.floor(this.baseOrbitBallCount + this.orbitBallCountBonus));
   }
 };
 
@@ -130,7 +136,7 @@ let cursors;
 let keys;
 let projectiles;
 let expOrbs;
-let orbitBall;
+let orbitBalls = [];
 let orbitBallAngle = 0;
 let lastAttackTime = 0;
 let killCount = 0;
@@ -184,16 +190,7 @@ function create() {
 
   projectiles = this.physics.add.group();
   expOrbs = this.physics.add.group();
-  orbitBall = this.add.circle(
-    player.x + ORBIT_BALL_RADIUS_FROM_PLAYER,
-    player.y,
-    ORBIT_BALL_SIZE,
-    0x3b82f6
-  );
-  this.physics.add.existing(orbitBall);
-  orbitBall.body.setAllowGravity(false);
-  orbitBall.body.setImmovable(true);
-  updateOrbitBallSize();
+  syncOrbitBallCount(this);
 
   this.physics.add.overlap(projectiles, enemies, (projectile, targetEnemy) => {
     projectile.destroy();
@@ -234,30 +231,6 @@ function create() {
 
     if (nextHp <= 0) {
       endRun(this);
-    }
-  });
-
-  this.physics.add.overlap(orbitBall, enemies, (_, targetEnemy) => {
-    if (isRunOver || isLevelUpPaused || !targetEnemy?.active) {
-      return;
-    }
-
-    const now = this.time.now;
-    const lastOrbitBallHitTime = targetEnemy.getData("lastOrbitBallHitTime") ?? -ORBIT_BALL_HIT_COOLDOWN_MS;
-    if (now < lastOrbitBallHitTime + ORBIT_BALL_HIT_COOLDOWN_MS) {
-      return;
-    }
-
-    targetEnemy.setData("lastOrbitBallHitTime", now);
-    const currentHp = targetEnemy.getData("hp") ?? targetEnemy.getData("maxHp") ?? ENEMY_TYPES.basic.maxHp;
-    const nextHp = currentHp - playerStats.getOrbitBallDamage();
-    targetEnemy.setData("hp", nextHp);
-
-    if (nextHp <= 0) {
-      const expValue = targetEnemy.getData("expValue") ?? ENEMY_TYPES.basic.expValue;
-      spawnExpOrb(this, targetEnemy.x, targetEnemy.y, expValue);
-      targetEnemy.destroy();
-      killCount += 1;
     }
   });
 
@@ -376,27 +349,98 @@ function update(_, delta) {
 }
 
 function updateOrbitBallPosition(delta) {
-  if (!orbitBall?.active || !player?.active) {
+  if (orbitBalls.length === 0 || !player?.active) {
     return;
   }
 
   orbitBallAngle += playerStats.getOrbitBallRotationSpeed() * delta;
-  orbitBall.setPosition(
-    player.x + (Math.cos(orbitBallAngle) * ORBIT_BALL_RADIUS_FROM_PLAYER),
-    player.y + (Math.sin(orbitBallAngle) * ORBIT_BALL_RADIUS_FROM_PLAYER)
-  );
-  orbitBall.body.updateFromGameObject();
+  const angleStep = (Math.PI * 2) / orbitBalls.length;
+  orbitBalls.forEach((orbitBall, index) => {
+    if (!orbitBall?.active) {
+      return;
+    }
+
+    const ballAngle = orbitBallAngle + (angleStep * index);
+    orbitBall.setPosition(
+      player.x + (Math.cos(ballAngle) * ORBIT_BALL_RADIUS_FROM_PLAYER),
+      player.y + (Math.sin(ballAngle) * ORBIT_BALL_RADIUS_FROM_PLAYER)
+    );
+    orbitBall.body.updateFromGameObject();
+  });
 }
 
 function updateOrbitBallSize() {
-  if (!orbitBall?.active) {
+  if (orbitBalls.length === 0) {
     return;
   }
 
   const orbitBallSize = playerStats.getOrbitBallSize();
-  orbitBall.setRadius(orbitBallSize);
-  orbitBall.body.setCircle(orbitBallSize);
-  orbitBall.body.updateFromGameObject();
+  orbitBalls.forEach((orbitBall) => {
+    if (!orbitBall?.active) {
+      return;
+    }
+
+    orbitBall.setRadius(orbitBallSize);
+    orbitBall.body.setCircle(orbitBallSize);
+    orbitBall.body.updateFromGameObject();
+  });
+}
+
+function handleOrbitBallEnemyOverlap(scene, targetEnemy) {
+  if (isRunOver || isLevelUpPaused || !targetEnemy?.active) {
+    return;
+  }
+
+  const now = scene.time.now;
+  const lastOrbitBallHitTime = targetEnemy.getData("lastOrbitBallHitTime") ?? -ORBIT_BALL_HIT_COOLDOWN_MS;
+  if (now < lastOrbitBallHitTime + ORBIT_BALL_HIT_COOLDOWN_MS) {
+    return;
+  }
+
+  targetEnemy.setData("lastOrbitBallHitTime", now);
+  const currentHp = targetEnemy.getData("hp") ?? targetEnemy.getData("maxHp") ?? ENEMY_TYPES.basic.maxHp;
+  const nextHp = currentHp - playerStats.getOrbitBallDamage();
+  targetEnemy.setData("hp", nextHp);
+
+  if (nextHp <= 0) {
+    const expValue = targetEnemy.getData("expValue") ?? ENEMY_TYPES.basic.expValue;
+    spawnExpOrb(scene, targetEnemy.x, targetEnemy.y, expValue);
+    targetEnemy.destroy();
+    killCount += 1;
+  }
+}
+
+function createOrbitBall(scene) {
+  const orbitBallSize = playerStats.getOrbitBallSize();
+  const orbitBall = scene.add.circle(
+    player.x + ORBIT_BALL_RADIUS_FROM_PLAYER,
+    player.y,
+    orbitBallSize,
+    0x3b82f6
+  );
+  scene.physics.add.existing(orbitBall);
+  orbitBall.body.setAllowGravity(false);
+  orbitBall.body.setImmovable(true);
+  scene.physics.add.overlap(orbitBall, enemies, (_, targetEnemy) => {
+    handleOrbitBallEnemyOverlap(scene, targetEnemy);
+  });
+  orbitBalls.push(orbitBall);
+}
+
+function syncOrbitBallCount(scene) {
+  const desiredCount = playerStats.getOrbitBallCount();
+
+  while (orbitBalls.length < desiredCount) {
+    createOrbitBall(scene);
+  }
+
+  while (orbitBalls.length > desiredCount) {
+    const orbitBall = orbitBalls.pop();
+    orbitBall?.destroy();
+  }
+
+  updateOrbitBallSize();
+  updateOrbitBallPosition(0);
 }
 
 function updateHudText() {
@@ -736,6 +780,9 @@ function applyTemporaryUpgrade(upgradeId) {
     updateOrbitBallSize();
   } else if (upgradeId === "orbit_ball_rotation_speed_15") {
     playerStats.orbitBallRotationSpeedMultiplier *= 1.15;
+  } else if (upgradeId === "orbit_ball_count_1") {
+    playerStats.orbitBallCountBonus += 1;
+    syncOrbitBallCount(activeScene);
   }
 }
 
