@@ -6,7 +6,9 @@ const PLAYER_MOVEMENT = {
 };
 
 const ENEMY_SPEED = 120;
+const ENEMY_BASE_HP = 3;
 const ATTACK_COOLDOWN_MS = 500;
+const PROJECTILE_DAMAGE = 1;
 const PROJECTILE_SPEED = 420;
 const PROJECTILE_RADIUS = 5;
 
@@ -48,6 +50,7 @@ let cursors;
 let keys;
 let projectiles;
 let lastAttackTime = 0;
+let killCount = 0;
 
 function preload() {
 }
@@ -61,13 +64,22 @@ function create() {
   enemy = this.add.circle(100, 100, 18, 0xef4444);
   this.physics.add.existing(enemy);
   enemy.body.setCollideWorldBounds(true);
+  enemy.setData("hp", ENEMY_BASE_HP);
 
   projectiles = this.physics.add.group();
 
   this.physics.add.overlap(projectiles, enemy, (projectile, targetEnemy) => {
     projectile.destroy();
-    targetEnemy.destroy();
-    enemy = null;
+
+    const currentHp = targetEnemy.getData("hp") ?? ENEMY_BASE_HP;
+    const nextHp = currentHp - PROJECTILE_DAMAGE;
+    targetEnemy.setData("hp", nextHp);
+
+    if (nextHp <= 0) {
+      targetEnemy.destroy();
+      enemy = null;
+      killCount += 1;
+    }
   });
 
   cursors = this.input.keyboard.createCursorKeys();
