@@ -56,9 +56,12 @@ const ORBIT_BALL_DAMAGE = 1;
 const ORBIT_BALL_HIT_COOLDOWN_MS = 500;
 const EXP_ORB_RADIUS = 6;
 const LEVEL_UP_OPTIONS = [
-  { id: "move_speed_10", label: "1) Move Speed +10%" },
-  { id: "projectile_damage_1", label: "2) Projectile Damage +1" },
-  { id: "attack_cooldown_10", label: "3) Attack Cooldown -10%" }
+  { id: "move_speed_10", label: "Move Speed +10%" },
+  { id: "projectile_damage_1", label: "Projectile Damage +1" },
+  { id: "attack_cooldown_10", label: "Attack Cooldown -10%" },
+  { id: "orbit_ball_damage_1", label: "Orbit Ball Damage +1" },
+  { id: "orbit_ball_size_20", label: "Orbit Ball Size +20%" },
+  { id: "orbit_ball_rotation_speed_15", label: "Orbit Ball Rotation Speed +15%" }
 ];
 const PERMANENT_UPGRADE_COST_BASE = 10;
 const PERMANENT_UPGRADE_COST_PER_LEVEL = 5;
@@ -68,9 +71,14 @@ const RESOURCE_GAIN_BONUS_PER_LEVEL = 0.1;
 
 const playerStats = {
   baseProjectileDamage: PROJECTILE_DAMAGE,
+  baseOrbitBallDamage: ORBIT_BALL_DAMAGE,
+  baseOrbitBallSize: ORBIT_BALL_SIZE,
   moveSpeedMultiplier: 1,
   projectileDamageBonus: 0,
   attackCooldownMultiplier: 1,
+  orbitBallDamageBonus: 0,
+  orbitBallSizeMultiplier: 1,
+  orbitBallRotationSpeedMultiplier: 1,
   getMoveSpeed() {
     return PLAYER_MOVEMENT.BASE_SPEED * this.moveSpeedMultiplier;
   },
@@ -79,6 +87,15 @@ const playerStats = {
   },
   getAttackCooldownMs() {
     return ATTACK_COOLDOWN_MS * this.attackCooldownMultiplier;
+  },
+  getOrbitBallDamage() {
+    return this.baseOrbitBallDamage + this.orbitBallDamageBonus;
+  },
+  getOrbitBallSize() {
+    return this.baseOrbitBallSize * this.orbitBallSizeMultiplier;
+  },
+  getOrbitBallRotationSpeed() {
+    return ORBIT_BALL_ROTATION_SPEED * this.orbitBallRotationSpeedMultiplier;
   }
 };
 
@@ -128,6 +145,7 @@ let resetSaveKey;
 let levelChoiceKeys;
 let levelUpTitleText;
 let levelUpOptionTexts = [];
+let currentLevelUpOptions = [];
 let pendingLevelUpChoices = 0;
 let isLevelUpPaused = false;
 let activeScene;
@@ -175,6 +193,7 @@ function create() {
   this.physics.add.existing(orbitBall);
   orbitBall.body.setAllowGravity(false);
   orbitBall.body.setImmovable(true);
+  updateOrbitBallSize();
 
   this.physics.add.overlap(projectiles, enemies, (projectile, targetEnemy) => {
     projectile.destroy();
@@ -231,7 +250,7 @@ function create() {
 
     targetEnemy.setData("lastOrbitBallHitTime", now);
     const currentHp = targetEnemy.getData("hp") ?? targetEnemy.getData("maxHp") ?? ENEMY_TYPES.basic.maxHp;
-    const nextHp = currentHp - ORBIT_BALL_DAMAGE;
+    const nextHp = currentHp - playerStats.getOrbitBallDamage();
     targetEnemy.setData("hp", nextHp);
 
     if (nextHp <= 0) {
@@ -361,11 +380,22 @@ function updateOrbitBallPosition(delta) {
     return;
   }
 
-  orbitBallAngle += ORBIT_BALL_ROTATION_SPEED * delta;
+  orbitBallAngle += playerStats.getOrbitBallRotationSpeed() * delta;
   orbitBall.setPosition(
     player.x + (Math.cos(orbitBallAngle) * ORBIT_BALL_RADIUS_FROM_PLAYER),
     player.y + (Math.sin(orbitBallAngle) * ORBIT_BALL_RADIUS_FROM_PLAYER)
   );
+  orbitBall.body.updateFromGameObject();
+}
+
+function updateOrbitBallSize() {
+  if (!orbitBall?.active) {
+    return;
+  }
+
+  const orbitBallSize = playerStats.getOrbitBallSize();
+  orbitBall.setRadius(orbitBallSize);
+  orbitBall.body.setCircle(orbitBallSize);
   orbitBall.body.updateFromGameObject();
 }
 
@@ -641,16 +671,17 @@ function showNextLevelUpChoice() {
   if (enemySpawnTimer) {
     enemySpawnTimer.paused = true;
   }
+  currentLevelUpOptions = Phaser.Utils.Array.Shuffle([...LEVEL_UP_OPTIONS]).slice(0, 3);
 
   levelUpTitleText = activeScene.add.text(config.width / 2, config.height / 2 - 90, "Level Up!", {
     fontSize: "48px",
     color: "#facc15"
   }).setOrigin(0.5);
 
-  levelUpOptionTexts = LEVEL_UP_OPTIONS.map((option, index) => activeScene.add.text(
+  levelUpOptionTexts = currentLevelUpOptions.map((option, index) => activeScene.add.text(
     config.width / 2,
     config.height / 2 - 20 + (index * 38),
-    option.label,
+    `${index + 1}) ${option.label}`,
     {
       fontSize: "26px",
       color: "#ffffff"
@@ -664,6 +695,7 @@ function hideLevelUpOverlay() {
 
   levelUpOptionTexts.forEach((text) => text.destroy());
   levelUpOptionTexts = [];
+  currentLevelUpOptions = [];
 }
 
 function selectLevelUpOption(optionIndex) {
@@ -671,7 +703,7 @@ function selectLevelUpOption(optionIndex) {
     return;
   }
 
-  const selectedOption = LEVEL_UP_OPTIONS[optionIndex];
+  const selectedOption = currentLevelUpOptions[optionIndex];
   if (!selectedOption) {
     return;
   }
@@ -697,6 +729,13 @@ function applyTemporaryUpgrade(upgradeId) {
     playerStats.projectileDamageBonus += 1;
   } else if (upgradeId === "attack_cooldown_10") {
     playerStats.attackCooldownMultiplier *= 0.9;
+  } else if (upgradeId === "orbit_ball_damage_1") {
+    playerStats.orbitBallDamageBonus += 1;
+  } else if (upgradeId === "orbit_ball_size_20") {
+    playerStats.orbitBallSizeMultiplier *= 1.2;
+    updateOrbitBallSize();
+  } else if (upgradeId === "orbit_ball_rotation_speed_15") {
+    playerStats.orbitBallRotationSpeedMultiplier *= 1.15;
   }
 }
 
