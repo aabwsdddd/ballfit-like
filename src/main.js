@@ -6,6 +6,11 @@ const PLAYER_MOVEMENT = {
 };
 
 const ENEMY_SPEED = 120;
+const ENEMY_BASE_HP = 3;
+const ATTACK_COOLDOWN_MS = 500;
+const PROJECTILE_DAMAGE = 1;
+const PROJECTILE_SPEED = 420;
+const PROJECTILE_RADIUS = 5;
 
 const playerStats = {
   moveSpeedMultiplier: 1,
@@ -43,6 +48,9 @@ let player;
 let enemy;
 let cursors;
 let keys;
+let projectiles;
+let lastAttackTime = 0;
+let killCount = 0;
 
 function preload() {
 }
@@ -56,6 +64,26 @@ function create() {
   enemy = this.add.circle(100, 100, 18, 0xef4444);
   this.physics.add.existing(enemy);
   enemy.body.setCollideWorldBounds(true);
+  enemy.currentHp = ENEMY_BASE_HP;
+
+  projectiles = this.physics.add.group();
+
+  this.physics.add.overlap(projectiles, enemy, (projectile, targetEnemy) => {
+    projectile.destroy();
+
+    if (!targetEnemy.active) {
+      return;
+    }
+
+    targetEnemy.currentHp -= PROJECTILE_DAMAGE;
+
+    if (targetEnemy.currentHp <= 0) {
+      targetEnemy.destroy();
+      enemy = null;
+      killCount += 1;
+      console.log("[Combat] killCount:", killCount);
+    }
+  });
 
   cursors = this.input.keyboard.createCursorKeys();
 
@@ -100,4 +128,40 @@ function update() {
     }
   }
 
+  if (enemy?.active && this.time.now >= lastAttackTime + ATTACK_COOLDOWN_MS) {
+    fireProjectile(this);
+    lastAttackTime = this.time.now;
+  }
+
+  projectiles.children.each((projectile) => {
+    if (
+      projectile.x < -PROJECTILE_RADIUS ||
+      projectile.x > config.width + PROJECTILE_RADIUS ||
+      projectile.y < -PROJECTILE_RADIUS ||
+      projectile.y > config.height + PROJECTILE_RADIUS
+    ) {
+      projectile.destroy();
+    }
+  });
+
+}
+
+function fireProjectile(scene) {
+  if (!enemy?.active) {
+    return;
+  }
+
+  const projectile = scene.add.circle(player.x, player.y, PROJECTILE_RADIUS, 0xffffff);
+  scene.physics.add.existing(projectile);
+  projectiles.add(projectile);
+
+  const direction = new Phaser.Math.Vector2(enemy.x - player.x, enemy.y - player.y);
+
+  if (direction.lengthSq() === 0) {
+    projectile.body.setVelocity(0);
+    return;
+  }
+
+  direction.normalize().scale(PROJECTILE_SPEED);
+  projectile.body.setVelocity(direction.x, direction.y);
 }
