@@ -28,6 +28,23 @@ export function createMetaState() {
 
 export const metaState = createMetaState();
 
+export function resetPermanentResource(targetMetaState = metaState) {
+  targetMetaState.permanentResource = initialMetaState.permanentResource;
+  targetMetaState.permanentUpgrades = createPermanentUpgrades(initialMetaState.permanentUpgrades);
+
+  if (typeof window === "undefined" || !window.localStorage) {
+    return false;
+  }
+
+  try {
+    window.localStorage.removeItem(META_STATE_STORAGE_KEY);
+    return true;
+  } catch (error) {
+    console.warn("[MetaState] Failed to reset permanent resource save.", error);
+    return false;
+  }
+}
+
 export function loadPermanentResource(targetMetaState = metaState) {
   if (typeof window === "undefined" || !window.localStorage) {
     targetMetaState.permanentResource = 0;

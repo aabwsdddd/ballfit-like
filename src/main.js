@@ -1,5 +1,10 @@
 import { getExpRequiredForLevel, runState } from "./data/runState.js";
-import { loadPermanentResource, metaState, savePermanentResource } from "./data/metaState.js";
+import {
+  loadPermanentResource,
+  metaState,
+  resetPermanentResource,
+  savePermanentResource
+} from "./data/metaState.js";
 
 const PLAYER_MOVEMENT = {
   BASE_SPEED: 250
@@ -89,6 +94,7 @@ let isRunOver = false;
 let gameOverText;
 let restartText;
 let restartKey;
+let resetSaveKey;
 let levelChoiceKeys;
 let levelUpTitleText;
 let levelUpOptionTexts = [];
@@ -101,6 +107,13 @@ let hasGrantedGameOverReward = false;
 let resultPanel;
 let resultText;
 let gameOverSummary = null;
+let resultFeedbackMessage = "";
+
+const PERMANENT_UPGRADE_DISPLAY_NAMES = {
+  startingHp: "Starting HP",
+  startingDamage: "Starting Damage",
+  resourceGain: "Resource Gain"
+};
 
 function preload() {
 }
@@ -176,6 +189,7 @@ function create() {
   });
 
   restartKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.R);
+  resetSaveKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D);
   levelChoiceKeys = this.input.keyboard.addKeys({
     option1: Phaser.Input.Keyboard.KeyCodes.ONE,
     option2: Phaser.Input.Keyboard.KeyCodes.TWO,
@@ -199,6 +213,8 @@ function update() {
       tryPurchasePermanentUpgrade("startingDamage");
     } else if (Phaser.Input.Keyboard.JustDown(levelChoiceKeys.option3)) {
       tryPurchasePermanentUpgrade("resourceGain");
+    } else if (Phaser.Input.Keyboard.JustDown(resetSaveKey)) {
+      resetMetaProgress();
     }
 
     player.body.setVelocity(0);
@@ -430,6 +446,7 @@ function endRun(scene) {
     survivalTimeSeconds,
     earnedResource
   };
+  resultFeedbackMessage = "";
 
   const centerX = config.width / 2;
   const centerY = config.height / 2;
@@ -451,7 +468,7 @@ function endRun(scene) {
   }).setOrigin(0.5).setDepth(1201);
   updateResultText();
 
-  restartText = scene.add.text(centerX, centerY + 128, "Press 1/2/3 to Buy Upgrade · Press R to Restart", {
+  restartText = scene.add.text(centerX, centerY + 128, "Press 1/2/3 to Buy Upgrade · Press D to Reset Save · Press R to Restart", {
     fontSize: "24px",
     color: "#ffffff"
   }).setOrigin(0.5).setDepth(1201);
@@ -613,14 +630,27 @@ function tryPurchasePermanentUpgrade(upgradeId) {
 
   const cost = getPermanentUpgradeCost(upgradeId);
   if (metaState.permanentResource < cost) {
+    setResultFeedback("Not enough Permanent Resource");
     return false;
   }
 
   metaState.permanentResource -= cost;
   metaState.permanentUpgrades[upgradeId] = getPermanentUpgradeLevel(upgradeId) + 1;
   savePermanentResource(metaState);
+  setResultFeedback(`Purchased ${PERMANENT_UPGRADE_DISPLAY_NAMES[upgradeId]} Lv. ${getPermanentUpgradeLevel(upgradeId)}`);
   updateResultText();
   return true;
+}
+
+function resetMetaProgress() {
+  resetPermanentResource(metaState);
+  setResultFeedback("Save reset to defaults");
+  updateResultText();
+}
+
+function setResultFeedback(message) {
+  resultFeedbackMessage = message;
+  updateResultText();
 }
 
 function updateResultText() {
@@ -637,6 +667,7 @@ function updateResultText() {
     + "Permanent Upgrades (Press 1 / 2 / 3):\n"
     + `1) Starting HP +10 | Lv.${getPermanentUpgradeLevel("startingHp")} | Cost: ${getPermanentUpgradeCost("startingHp")}\n`
     + `2) Starting Damage +1 | Lv.${getPermanentUpgradeLevel("startingDamage")} | Cost: ${getPermanentUpgradeCost("startingDamage")}\n`
-    + `3) Resource Gain +10% | Lv.${getPermanentUpgradeLevel("resourceGain")} | Cost: ${getPermanentUpgradeCost("resourceGain")}`
+    + `3) Resource Gain +10% | Lv.${getPermanentUpgradeLevel("resourceGain")} | Cost: ${getPermanentUpgradeCost("resourceGain")}\n\n`
+    + `Feedback: ${resultFeedbackMessage || "-"}`
   );
 }
