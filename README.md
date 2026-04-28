@@ -1,13 +1,14 @@
 # Ballfit Like
 
-Godot 4로 만드는 2D 탑다운 로그라이크 서바이벌 게임 프로젝트입니다.
+Phaser + JavaScript로 만드는 2D 탑다운 로그라이크 서바이벌 웹게임 프로젝트입니다.
 
 ## 핵심 구조
 
 - EXP는 한 판(run) 안에서만 사용하는 레벨업 재료입니다.
 - EXP는 판이 끝나면 초기화됩니다.
-- Resource는 판 종료 후 얻는 영구 성장 재화입니다.
-- Resource는 저장되며 영구 업그레이드에 사용됩니다.
+- Permanent Resource는 판 종료 후 얻는 영구 성장 재화입니다.
+- Permanent Resource는 저장되며 영구 업그레이드에 사용됩니다.
+- EXP와 Permanent Resource는 반드시 분리합니다.
 
 ## 목표
 
