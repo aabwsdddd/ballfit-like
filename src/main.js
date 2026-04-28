@@ -90,12 +90,18 @@ let pendingLevelUpChoices = 0;
 let isLevelUpPaused = false;
 let activeScene;
 let hudText;
+let runStartTimeMs = 0;
+let hasGrantedGameOverReward = false;
+let resultPanel;
+let resultText;
 
 function preload() {
 }
 
 function create() {
   activeScene = this;
+  runStartTimeMs = this.time.now;
+  hasGrantedGameOverReward = false;
   player = this.add.circle(480, 270, 20, 0x4ade80);
 
   this.physics.add.existing(player);
@@ -376,11 +382,12 @@ function scheduleNextEnemySpawn(scene) {
 }
 
 function endRun(scene) {
-  if (isRunOver) {
+  if (isRunOver || hasGrantedGameOverReward) {
     return;
   }
 
   isRunOver = true;
+  hasGrantedGameOverReward = true;
   pendingLevelUpChoices = 0;
   hideLevelUpOverlay();
   resumePhysicsIfNeeded(scene);
@@ -397,15 +404,42 @@ function endRun(scene) {
     }
   });
 
-  gameOverText = scene.add.text(config.width / 2, config.height / 2 - 20, "Game Over", {
+  const survivalTimeSeconds = Math.floor((scene.time.now - runStartTimeMs) / 1000);
+  const earnedResource = killCount + Math.floor(survivalTimeSeconds / 10);
+  metaState.permanentResource += earnedResource;
+
+  const centerX = config.width / 2;
+  const centerY = config.height / 2;
+
+  resultPanel = scene.add.rectangle(centerX, centerY, 620, 330, 0x000000, 0.72)
+    .setStrokeStyle(2, 0xffffff, 0.35)
+    .setDepth(1200);
+
+  gameOverText = scene.add.text(centerX, centerY - 125, "Game Over", {
     fontSize: "48px",
     color: "#ffffff"
-  }).setOrigin(0.5);
+  }).setOrigin(0.5).setDepth(1201);
 
-  restartText = scene.add.text(config.width / 2, config.height / 2 + 30, "Press R to Restart", {
+  resultText = scene.add.text(
+    centerX,
+    centerY - 10,
+    `Survival Time: ${survivalTimeSeconds}s\n`
+    + `Kills: ${killCount}\n`
+    + `Final Level: ${runState.runLevel}\n`
+    + `Earned Permanent Resource: +${earnedResource}\n`
+    + `Total Permanent Resource: ${metaState.permanentResource}`,
+    {
+      fontSize: "26px",
+      color: "#ffffff",
+      align: "center",
+      lineSpacing: 8
+    }
+  ).setOrigin(0.5).setDepth(1201);
+
+  restartText = scene.add.text(centerX, centerY + 128, "Press R to Restart", {
     fontSize: "24px",
     color: "#ffffff"
-  }).setOrigin(0.5);
+  }).setOrigin(0.5).setDepth(1201);
 }
 
 function restartRun() {
