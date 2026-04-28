@@ -22,11 +22,24 @@ const PROJECTILE_SPEED = 420;
 const PROJECTILE_RADIUS = 5;
 const EXP_ORB_VALUE = 1;
 const EXP_ORB_RADIUS = 6;
+const LEVEL_UP_OPTIONS = [
+  { id: "move_speed_10", label: "1) Move Speed +10%" },
+  { id: "projectile_damage_1", label: "2) Projectile Damage +1" },
+  { id: "attack_cooldown_10", label: "3) Attack Cooldown -10%" }
+];
 
 const playerStats = {
   moveSpeedMultiplier: 1,
+  projectileDamageBonus: 0,
+  attackCooldownMultiplier: 1,
   getMoveSpeed() {
     return PLAYER_MOVEMENT.BASE_SPEED * this.moveSpeedMultiplier;
+  },
+  getProjectileDamage() {
+    return PROJECTILE_DAMAGE + this.projectileDamageBonus;
+  },
+  getAttackCooldownMs() {
+    return ATTACK_COOLDOWN_MS * this.attackCooldownMultiplier;
   }
 };
 
@@ -70,11 +83,18 @@ let isRunOver = false;
 let gameOverText;
 let restartText;
 let restartKey;
+let levelChoiceKeys;
+let levelUpTitleText;
+let levelUpOptionTexts = [];
+let pendingLevelUpChoices = 0;
+let isLevelUpPaused = false;
+let activeScene;
 
 function preload() {
 }
 
 function create() {
+  activeScene = this;
   player = this.add.circle(480, 270, 20, 0x4ade80);
 
   this.physics.add.existing(player);
@@ -92,7 +112,7 @@ function create() {
     projectile.destroy();
 
     const currentHp = targetEnemy.getData("hp") ?? ENEMY_BASE_HP;
-    const nextHp = currentHp - PROJECTILE_DAMAGE;
+    const nextHp = currentHp - playerStats.getProjectileDamage();
     targetEnemy.setData("hp", nextHp);
 
     if (nextHp <= 0) {
@@ -140,6 +160,11 @@ function create() {
   });
 
   restartKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.R);
+  levelChoiceKeys = this.input.keyboard.addKeys({
+    option1: Phaser.Input.Keyboard.KeyCodes.ONE,
+    option2: Phaser.Input.Keyboard.KeyCodes.TWO,
+    option3: Phaser.Input.Keyboard.KeyCodes.THREE
+  });
 }
 
 function update() {
@@ -147,6 +172,17 @@ function update() {
     player.body.setVelocity(0);
     if (Phaser.Input.Keyboard.JustDown(restartKey)) {
       restartRun();
+    }
+    return;
+  }
+
+  if (isLevelUpPaused) {
+    if (Phaser.Input.Keyboard.JustDown(levelChoiceKeys.option1)) {
+      selectLevelUpOption(0);
+    } else if (Phaser.Input.Keyboard.JustDown(levelChoiceKeys.option2)) {
+      selectLevelUpOption(1);
+    } else if (Phaser.Input.Keyboard.JustDown(levelChoiceKeys.option3)) {
+      selectLevelUpOption(2);
     }
     return;
   }
@@ -187,7 +223,7 @@ function update() {
   });
 
   const nearestEnemy = getNearestActiveEnemy();
-  if (nearestEnemy && this.time.now >= lastAttackTime + ATTACK_COOLDOWN_MS) {
+  if (nearestEnemy && this.time.now >= lastAttackTime + playerStats.getAttackCooldownMs()) {
     fireProjectile(this, nearestEnemy);
     lastAttackTime = this.time.now;
   }
@@ -317,6 +353,9 @@ function endRun(scene) {
   }
 
   isRunOver = true;
+  pendingLevelUpChoices = 0;
+  hideLevelUpOverlay();
+  resumePhysicsIfNeeded(scene);
   player.body.setVelocity(0);
 
   if (enemySpawnTimer) {
@@ -348,13 +387,26 @@ function restartRun() {
 }
 
 function processRunLevelUps() {
+  if (isRunOver) {
+    return;
+  }
+
+  let gainedLevels = 0;
   let requiredExp = getExpRequiredForLevel(runState.runLevel);
 
   while (runState.exp >= requiredExp) {
     runState.exp -= requiredExp;
     runState.runLevel += 1;
+    gainedLevels += 1;
     console.log("[RunState] Level Up:", runState.runLevel, "Remaining EXP:", runState.exp);
     requiredExp = getExpRequiredForLevel(runState.runLevel);
+  }
+
+  if (gainedLevels > 0) {
+    pendingLevelUpChoices += gainedLevels;
+    if (!isLevelUpPaused) {
+      showNextLevelUpChoice();
+    }
   }
 }
 
@@ -375,4 +427,84 @@ function getNearestActiveEnemy() {
   });
 
   return nearestEnemy;
+}
+
+function showNextLevelUpChoice() {
+  if (isRunOver || pendingLevelUpChoices <= 0 || !activeScene) {
+    return;
+  }
+
+  isLevelUpPaused = true;
+  activeScene.physics.world.pause();
+  if (enemySpawnTimer) {
+    enemySpawnTimer.paused = true;
+  }
+
+  levelUpTitleText = activeScene.add.text(config.width / 2, config.height / 2 - 90, "Level Up!", {
+    fontSize: "48px",
+    color: "#facc15"
+  }).setOrigin(0.5);
+
+  levelUpOptionTexts = LEVEL_UP_OPTIONS.map((option, index) => activeScene.add.text(
+    config.width / 2,
+    config.height / 2 - 20 + (index * 38),
+    option.label,
+    {
+      fontSize: "26px",
+      color: "#ffffff"
+    }
+  ).setOrigin(0.5));
+}
+
+function hideLevelUpOverlay() {
+  levelUpTitleText?.destroy();
+  levelUpTitleText = null;
+
+  levelUpOptionTexts.forEach((text) => text.destroy());
+  levelUpOptionTexts = [];
+}
+
+function selectLevelUpOption(optionIndex) {
+  if (isRunOver || !isLevelUpPaused) {
+    return;
+  }
+
+  const selectedOption = LEVEL_UP_OPTIONS[optionIndex];
+  if (!selectedOption) {
+    return;
+  }
+
+  applyTemporaryUpgrade(selectedOption.id);
+  runState.temporaryUpgrades.push(selectedOption.id);
+  pendingLevelUpChoices = Math.max(0, pendingLevelUpChoices - 1);
+
+  hideLevelUpOverlay();
+  if (pendingLevelUpChoices > 0) {
+    showNextLevelUpChoice();
+    return;
+  }
+
+  isLevelUpPaused = false;
+  resumePhysicsIfNeeded(activeScene);
+}
+
+function applyTemporaryUpgrade(upgradeId) {
+  if (upgradeId === "move_speed_10") {
+    playerStats.moveSpeedMultiplier *= 1.1;
+  } else if (upgradeId === "projectile_damage_1") {
+    playerStats.projectileDamageBonus += 1;
+  } else if (upgradeId === "attack_cooldown_10") {
+    playerStats.attackCooldownMultiplier *= 0.9;
+  }
+}
+
+function resumePhysicsIfNeeded(scene) {
+  if (!scene) {
+    return;
+  }
+
+  scene.physics.world.resume();
+  if (enemySpawnTimer) {
+    enemySpawnTimer.paused = false;
+  }
 }
